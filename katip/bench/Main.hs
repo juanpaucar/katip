@@ -1,17 +1,16 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 module Main
     ( main
     ) where
 
 
 -------------------------------------------------------------------------------
-import           Blaze.ByteString.Builder
-import           Control.Concurrent
-import           Control.Monad.IO.Class
-import           CriterionPlus
+import           Control.DeepSeq
+import           Criterion
+import           Criterion.Main
 import           Data.Aeson
 import           Data.Monoid
-import           Data.Text              (Text)
 import           Data.Time.Calendar
 import           Data.Time.Clock
 import           System.IO
@@ -21,36 +20,40 @@ import           Katip.Core
 import           Katip.Scribes.Handle
 -------------------------------------------------------------------------------
 
+instance NFData Scribe
+
+
 main :: IO ()
-main = benchmark $
-  handleScribeBench
+main = defaultMain
+  [
+    handleScribeBench
+  ]
 
 
 -------------------------------------------------------------------------------
-handleScribeBench :: Benchmark ()
-handleScribeBench = standoff "Katip.Scribes.Handle" $
-  subject "Bytestring Builder" $ do
-    pause
-    (Scribe push) <- liftIO setup
-    tid <- liftIO myThreadId
-    continue
-    whnfIO $ push $ exItem tid
+handleScribeBench :: Benchmark
+handleScribeBench = env setup $ \ ~(Scribe push) -> bgroup "Katip.Scribes.Handle"
+  [
+    bench "Bytestring Builder" $
+      whnfIO $ push $ exItem
+  ]
+
 
 
 -------------------------------------------------------------------------------
-exItem :: ThreadId -> Item ExPayload
-exItem tid = Item {
-      itemApp = Namespace ["app"]
-    , itemEnv = Environment "production"
-    , itemSeverity = Warning
-    , itemThread = tid
-    , itemHost = "example"
-    , itemProcess = CPid 123
-    , itemPayload = ExPayload
-    , itemMessage = "message"
-    , itemTime = mkUTCTime 2015 3 14 1 5 9
-    , itemNamespace = Namespace ["foo"]
-    , itemLoc = Nothing
+exItem :: Item ExPayload
+exItem = Item {
+      _itemApp = Namespace ["app"]
+    , _itemEnv = Environment "production"
+    , _itemSeverity = WarningS
+    , _itemThread = ThreadIdText "1234"
+    , _itemHost = "example"
+    , _itemProcess = CPid 123
+    , _itemPayload = ExPayload
+    , _itemMessage = "message"
+    , _itemTime = mkUTCTime 2015 3 14 1 5 9
+    , _itemNamespace = Namespace ["foo"]
+    , _itemLoc = Nothing
     }
 
 
@@ -59,6 +62,8 @@ data ExPayload = ExPayload
 
 instance ToJSON ExPayload where
   toJSON _ = Object mempty
+
+instance ToObject ExPayload
 
 instance LogItem ExPayload where
   payloadKeys _ _ = AllKeys
@@ -76,4 +81,4 @@ mkUTCTime y mt d h mn s = UTCTime day dt
 setup :: IO Scribe
 setup = do
   h <- openFile "/dev/null" WriteMode
-  mkHandleScribe h Debug V0
+  mkHandleScribe (ColorLog False) h DebugS V0
